@@ -1,0 +1,84 @@
+name: Build plugin (Mac and Windows)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (universal arm64 + x86_64)
+        run: >
+          cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DMUM_BUILD_TESTS=ON
+          -DMUM_BUILD_NUMBER=${{ github.run_number }}
+
+      - name: Build
+        run: cmake --build build --config Release --target MUMusicMaker_AU MUMusicMaker_VST3 MUMusicMaker_Standalone MUMTests -- -quiet
+
+      - name: Tests (engine stand-in, library, queue, catching audio, player, updater)
+        run: |
+          BIN="$(find build -type f -name MUMTests -perm +111 | head -1)"
+          HOME="$RUNNER_TEMP/mum-home" "$BIN"
+
+      - name: The same tests as an Intel Mac runs them (also how Logic under Rosetta does)
+        run: |
+          softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 || true
+          BIN="$(find build -type f -name MUMTests -perm +111 | head -1)"
+          arch -x86_64 env HOME="$RUNNER_TEMP/mum-home-intel" "$BIN"
+
+      - name: The engine scripts are valid shell
+        run: |
+          for f in engine/*.sh; do bash -n "$f"; done
+
+      - name: AU validation
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "build/MUMusicMaker_artefacts/Release/AU/MU Music Maker.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          auval -v aufx Mumm Muno
+
+      - name: Build installer
+        run: bash scripts/make_installer.sh build/MUMusicMaker_artefacts/Release "${GITHUB_RUN_NUMBER}"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: MU Music Maker build ${{ github.run_number }}
+          body: |
+            Mac: download MUMusicMaker-Mac.pkg, double-click it and click through the installer. Then restart your DAW.
+            The first time, macOS says it could not check the file: press Done, open System Settings >
+            Privacy & Security, scroll to the bottom and press Open Anyway.
+
+            Windows (added a few minutes after the Mac file): download MUMusicMaker-Windows-Setup.exe and run it with
+            your DAW closed. Windows may say it does not recognise the publisher: choose More info > Run anyway.
+
+            Then open the plugin, go to Settings and press Set up the engine. That part is done once.
+          make_latest: true
+          files: |
+            dist/MUMusicMaker-Mac.pkg
+            dist/MUMusicMaker-bundles.zip
+            dist/latest.json
+
+  windows:
+    needs: mac
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build, test and package
+        shell: pwsh
+        run: ./scripts/build_windows.ps1 -BuildNumber ${{ github.run_number }}
+
+      - name: Add the Windows installer to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          files: dist/*.exe

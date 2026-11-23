@@ -1,0 +1,9 @@
+build/
+build-*/
+dist/
+pkgroot/
+pkgscripts/
+preview/
+update/
+.DS_Store
+__pycache__/
