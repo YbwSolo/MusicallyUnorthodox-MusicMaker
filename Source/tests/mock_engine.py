@@ -7,8 +7,11 @@
 POST /mock/config changes how it behaves: {"writer": false} pretends the language model is not loaded,
 {"fail": "message"} makes every song fail, {"delay": 0.4} sets how long a song takes, {"chunked": true}
 sends audio in chunks, {"api_key": "k"} demands a key. GET /mock/last returns the last song request it was sent.
+
+Under /online it also stands in for ACE Music's online service (the chat-completions shape from the engine's
+own documentation): GET /online/v1/models and POST /online/v1/chat/completions, which want the key "testkey".
 """
-import argparse, json, math, os, struct, tempfile, threading, time, urllib.parse, uuid, wave
+import argparse, base64, json, math, os, struct, tempfile, threading, time, urllib.parse, uuid, wave
 from email.parser import BytesParser
 from email.policy import HTTP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -78,8 +81,68 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0") or 0)
         return self.rfile.read(length) if length > 0 else b""
 
+    def online_authorised(self):
+        if self.headers.get("Authorization", "") == "Bearer testkey":
+            return True
+        self.send_json({"detail": "Invalid API key"}, 401)
+        return False
+
+    def send_events(self, events):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        for event in events:
+            piece = ("data: " + (event if isinstance(event, str) else json.dumps(event)) + "\n\n").encode("utf-8")
+            self.wfile.write(("%x\r\n" % len(piece)).encode() + piece + b"\r\n")
+            self.wfile.flush()
+        self.wfile.write(b"0\r\n\r\n")
+
+    def online_song(self, fields):
+        def chunk(delta, finish=None):
+            return {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": int(time.time()),
+                    "model": fields.get("model", ""), "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+
+        content = fields["messages"][0]["content"]
+        text, sent_audio = content, None
+        if isinstance(content, list):
+            text = "".join(part.get("text", "") for part in content if part.get("type") == "text")
+            for part in content:
+                if part.get("type") == "input_audio":
+                    raw = base64.b64decode(part["input_audio"]["data"])
+                    sent_audio = {"bytes": len(raw), "format": part["input_audio"]["format"], "magic": raw[:4].decode("latin-1")}
+                    part["input_audio"]["data"] = "(%d bytes)" % len(raw)
+        with LOCK:
+            LAST.clear()
+            LAST.update({"fields": fields, "text": text, "audio": sent_audio})
+
+        if CONFIG["fail"]:
+            return self.send_events([chunk({"role": "assistant", "content": ""}), chunk({"content": CONFIG["fail"]}, "error"), "[DONE]"])
+
+        config = fields.get("audio_config") or {}
+        events = [chunk({"role": "assistant", "content": ""})]
+        if fields.get("sample_mode") or fields.get("thinking") or fields.get("use_format"):
+            lyrics = "[Instrumental]" if config.get("instrumental") else "[Verse]\nWords the service wrote\n\n[Chorus]\nAnd a hook..."
+            events.append(chunk({"content": "\n\n## Metadata\n**Caption:** A song the service wrote from: %s\n**BPM:** %s\n**Duration:** 2s\n"
+                                           "**Key:** %s\n**Time Signature:** 4\n\n## Lyrics\n%s" % (text[:60], config.get("bpm") or 96,
+                                                                                               config.get("key_scale") or "G minor", lyrics)}))
+        events += [chunk({"content": "."}), chunk({"content": "."})]
+        time.sleep(CONFIG["delay"])
+        songs = []
+        for i in range(max(1, min(4, int(fields.get("batch_size") or 1)))):
+            path = make_audio(1.5, "wav", 220.0 * (i + 1))
+            data = base64.b64encode(open(path, "rb").read()).decode("ascii")
+            songs.append({"type": "audio_url", "audio_url": {"url": "data:audio/wav;base64," + data}})
+        events += [chunk({"audio": songs}), chunk({}, "stop"), "[DONE]"]
+        self.send_events(events)
+
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
+        if url.path == "/online/v1/models":
+            if not self.online_authorised():
+                return
+            return self.send_json({"data": [{"id": "acemusic/acestep-v15-turbo", "object": "model"},
+                                            {"id": "acemusic/acestep-v15-xl-turbo", "object": "model"}]})
         if url.path == "/health":
             return self.send_json(wrap({"status": "ok", "service": "ACE-Step API", "version": "1.0", "models_initialized": True,
                                         "llm_initialized": CONFIG["writer"], "loaded_model": "acestep-v15-turbo",
@@ -119,6 +182,10 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/mock/config":
             CONFIG.update(json.loads(body or b"{}"))
             return self.send_json(CONFIG)
+        if url.path == "/online/v1/chat/completions":
+            if not self.online_authorised():
+                return
+            return self.online_song(json.loads(body or b"{}"))
         if not self.authorised():
             return
 

@@ -11,13 +11,21 @@ const Section kSections[] = {
     { "WHAT THIS IS",
       "MU Music Maker makes whole songs from words: beats, instruments and singing. You describe what you want or write the lyrics yourself, "
       "it makes a few versions, and you drag the one you like straight into your project.\n\n"
-      "The music is made by an engine called ACE-Step that runs on your own computer, so it is free to use as much as you like and nothing leaves the machine. "
-      "The engine is separate from the plugin and has to be set up once." },
+      "The music is made by an engine called ACE-Step. You choose where it runs in Settings: online, which is free and needs nothing installed, "
+      "or on your own computer, which keeps everything private and works with no internet." },
 
-    { "SETTING UP THE ENGINE (ONCE)",
-      "1.  Go to Settings and press Set up the engine. A window opens and does the work by itself. It downloads about 10 GB, so give it time and leave it open.\n"
-      "2.  When that window says All done, come back to Settings and press Start the engine. It takes a minute or so to come up.\n"
-      "3.  The dot at the bottom left turns green and says Engine ready. From then on the plugin starts the engine by itself whenever you open it. "
+    { "GETTING STARTED (ONLINE, FREE)",
+      "1.  Go to Settings. Online is already chosen.\n"
+      "2.  Press Get a free key. It opens ACE Music's page in your browser: make a free account there and copy the key it gives you.\n"
+      "3.  Paste the key into Your key. The dot at the bottom left turns green and says Online ready.\n\n"
+      "That is all. ACE Music are the people who make the engine, and they run it online for free. "
+      "Your words, and any audio you start a song from, are sent to them to make the song, so it needs the internet." },
+
+    { "RUNNING IT ON YOUR OWN COMPUTER INSTEAD",
+      "Choose On this computer in Settings if you would rather nothing left your machine, or want to work with no internet.\n\n"
+      "1.  Press Set up the engine. A window opens and does the work by itself. It downloads about 10 GB, so give it time and leave it open.\n"
+      "2.  When that window says All done, press Start the engine. It takes a minute or so to come up.\n"
+      "3.  The dot turns green and says Engine ready. From then on the plugin starts the engine by itself whenever you open it. "
       "The first song after each start is slower, because that is when the engine loads its model.\n\n"
       "What it needs: on a Mac, an Apple Silicon machine (M1 or newer) with 16 GB of memory is comfortable. On Windows, an NVIDIA graphics card with 6 GB or more. "
       "It wants about 20 GB of free disk space." },
@@ -45,16 +53,17 @@ const Section kSections[] = {
       "The files live in Music > MU Music Maker > Songs. The heart keeps your favourites together in the Library." },
 
     { "USING A SECOND COMPUTER",
-      "The engine can run on one computer while you make music on another, for example a PC with a strong graphics card doing the work for a laptop.\n\n"
+      "With On this computer chosen, the engine can also run on one computer while you make music on another, for example a PC with a strong graphics card doing the work for a laptop.\n\n"
       "On the computer with the engine: open the plugin, tick Let other computers on my network use this engine in Settings, and start the engine again.\n"
       "On the other computer: in Settings, change Where the engine is to the first computer's address, like http://192.168.1.20:8001. Both have to be on the same network." },
 
     { "IF SOMETHING GOES WRONG",
-      "Engine not running: press Start the engine in Settings. If it will not start, Show the engine's log says why.\n"
-      "It stays on Engine is starting: the very first start also downloads anything that is missing, which can take several minutes.\n"
-      "A song fails straight away: the computer may be out of memory. Close other heavy apps, ask for one version instead of two, or a shorter length.\n"
-      "The song has no words: on computers with less memory the engine leaves its lyric writer switched off. Use Write it yourself and type the lyrics in.\n"
-      "It sounds rough: turn Quality up under More options, or try again. Results vary from take to take, which is why you get more than one." } };
+      "Needs a free key, or Key not accepted: open Settings, press Get a free key and paste the key in again, with no spaces around it.\n"
+      "Online not reachable: check the internet connection. If the internet is fine, the service itself may be busy, so try again in a few minutes.\n"
+      "Engine not running (on this computer): press Start the engine in Settings. If it will not start, Show the engine's log says why.\n"
+      "A song fails straight away on this computer: it may be out of memory. Close other heavy apps, ask for one version instead of two, or a shorter length.\n"
+      "The song has no words: on computers with less memory the engine leaves its lyric writer switched off. Use Write it yourself and type the lyrics in, or switch to Online.\n"
+      "It sounds rough: try again. Results vary from take to take, which is why you get more than one." } };
 
 class HelpContent : public juce::Component
 {

@@ -1,6 +1,7 @@
 // Checks the parts that need no DAW and no real engine. Run with HOME pointing at an empty folder.
 // The network checks talk to Source/tests/mock_engine.py, which this starts by itself when Python is there.
 #include "core/Services.h"
+#include "core/Online.h"
 #include "core/Player.h"
 #include "core/Recorder.h"
 #include "PluginProcessor.h"
@@ -123,6 +124,88 @@ int main()
 
         check (EngineClient::needsWriter (r) && ! EngineClient::needsWriter (SongRequest::fromVar (juce::JSON::parse ("{\"mode\":\"custom\"}"))), "knows which songs lean on the writer");
         check (EngineClient::isWriterMissing ("5Hz LM init failed: LLM not initialized at startup.") && ! EngineClient::isWriterMissing ("CUDA out of memory"), "tells a missing writer from any other failure");
+    }
+
+    std::cout << "What is sent to the online service" << std::endl;
+    {
+        SongRequest r;
+        r.description = "A dark drill track about coming up";
+        r.variations = 2;
+        auto p = OnlineClient::buildPayload (r, "acemusic/acestep-v15-turbo", "wav");
+        check (p["messages"][0]["content"].toString() == r.description && (bool) p["sample_mode"] && (bool) p["stream"] && (int) p["batch_size"] == 2
+               && p["model"].toString() == "acemusic/acestep-v15-turbo" && p["audio_config"]["format"].toString() == "wav", "a described song asks the service to write it");
+        check (! p["audio_config"].hasProperty ("bpm") && ! p["audio_config"].hasProperty ("duration") && ! p.hasProperty ("seed"), "tempo, length and seed are left to the service when they are on Auto");
+
+        SongRequest c;
+        c.mode = SongRequest::Mode::custom;
+        c.style = "dark trap, 808s";
+        c.lyrics = "[Verse]\nHello";
+        c.bpm = 140; c.key = "C minor"; c.timeSignature = "4"; c.seconds = 120; c.randomSeed = false; c.seed = 77; c.language = "es";
+        p = OnlineClient::buildPayload (c, "m", "flac");
+        check (p["messages"][0]["content"].toString() == "<prompt>dark trap, 808s</prompt><lyrics>[Verse]\nHello</lyrics>" && ! (bool) p["sample_mode"], "style and lyrics go in their own tags");
+        check ((int) p["audio_config"]["bpm"] == 140 && p["audio_config"]["key_scale"].toString() == "C minor" && p["audio_config"]["time_signature"].toString() == "4/4"
+               && (double) p["audio_config"]["duration"] == 120.0 && p["audio_config"]["vocal_language"].toString() == "es" && p["seed"].toString() == "77", "tempo, key, time, length, language and seed");
+        c.instrumental = true;
+        p = OnlineClient::buildPayload (c, "m", "flac");
+        check (p["messages"][0]["content"].toString() == "<prompt>dark trap, 808s</prompt>" && (bool) p["audio_config"]["instrumental"], "an instrumental sends no lyrics and says so");
+
+        c.source = SongRequest::Source::cover; c.strength = 0.6;
+        p = OnlineClient::buildPayload (c, "m", "flac", "QUJD", "flac");
+        check (p["task_type"].toString() == "cover" && p["messages"][0]["content"][1]["type"].toString() == "input_audio"
+               && p["messages"][0]["content"][1]["input_audio"]["data"].toString() == "QUJD" && p["messages"][0]["content"][1]["input_audio"]["format"].toString() == "flac"
+               && p["messages"][0]["content"][0]["text"].toString().startsWith ("<prompt>"), "a remake carries the audio with the words");
+        c.source = SongRequest::Source::repaint; c.repaintStart = 5; c.repaintEnd = -1;
+        p = OnlineClient::buildPayload (c, "m", "flac", "QUJD", "flac");
+        check (p["task_type"].toString() == "repaint" && (double) p["repainting_start"] == 5.0 && ! p.hasProperty ("repainting_end"), "redoing a part up to the end");
+
+        OnlineResult details;
+        OnlineClient::parseDetails ("\n\n## Metadata\n**Caption:** Upbeat pop song\n**BPM:** 120\n**Duration:** 30s\n**Key:** C major\n**Time Signature:** 4\n\n## Lyrics\n[Verse 1]\nHello world\n\n[Chorus]\nLa la", details);
+        check (details.caption == "Upbeat pop song" && details.bpm == 120.0 && details.seconds == 30.0 && details.key == "C major" && details.timeSignature == "4"
+               && details.lyrics == "[Verse 1]\nHello world\n\n[Chorus]\nLa la", "reads what the service says it made");
+
+        const auto folder = scratch.getChildFile ("online-parse");
+        folder.createDirectory();
+        juce::MemoryBlock fake;
+        fake.append ("RIFF", 4);
+        for (int i = 0; i < 40; ++i) fake.append ("wave", 4);
+        const auto encoded = juce::Base64::toBase64 (fake.getData(), fake.getSize());
+        OnlineResult result;
+        juce::String error;
+        const juce::String whole = "{\"id\":\"x\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"## Metadata\\n**BPM:** 90\",\"audio\":[{\"type\":\"audio_url\",\"audio_url\":{\"url\":\"data:audio/mpeg;base64,"
+                                   + encoded + "\"}}]},\"finish_reason\":\"stop\"}]}";
+        check (OnlineClient::parseAnswer (whole, folder, "one", result, error) && result.files.size() == 1 && result.files[0].getFileName() == "one-1.wav"
+               && result.files[0].getSize() == (juce::int64) fake.getSize() && result.bpm == 90.0, "an answer in one piece: the audio is saved, named for what it really is");
+        OnlineResult streamed;
+        const juce::String stream = "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n"
+                                    "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"## Lyrics\\nLine one\"},\"finish_reason\":null}]}\n\n"
+                                    "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\".\"},\"finish_reason\":null}]}\n\n"
+                                    "data: {\"choices\":[{\"index\":0,\"delta\":{\"audio\":[{\"type\":\"audio_url\",\"audio_url\":{\"url\":\"data:audio/wav;base64," + encoded
+                                    + "\"}},{\"type\":\"audio_url\",\"audio_url\":{\"url\":\"data:audio/wav;base64," + encoded + "\"}}]},\"finish_reason\":null}]}\n\n"
+                                    "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+        check (OnlineClient::parseAnswer (stream, folder, "two", streamed, error) && streamed.files.size() == 2 && streamed.lyrics == "Line one", "an answer that streams in: both versions saved, and the waiting dots are not mistaken for lyrics");
+        OnlineResult bad;
+        check (! OnlineClient::parseAnswer ("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Out of capacity\"},\"finish_reason\":\"error\"}]}\n\n", folder, "three", bad, error)
+               && error == "Out of capacity" && bad.files.isEmpty(), "a failure carries the service's own reason");
+        check (! OnlineClient::parseAnswer ("{\"detail\":\"Invalid API key\"}", folder, "four", bad, error) && error == "Invalid API key", "so does a refusal");
+        OnlineResult linked;
+        check (OnlineClient::parseAnswer ("{\"choices\":[{\"index\":0,\"message\":{\"content\":\"ok\",\"audio\":[{\"type\":\"audio_url\",\"audio_url\":{\"url\":\"https://example.com/a.mp3\"}}]},\"finish_reason\":\"stop\"}]}", folder, "six", linked, error)
+               && linked.files.isEmpty() && linked.links.size() == 1 && linked.links[0] == "https://example.com/a.mp3", "audio given as a link instead is noted, to be fetched");
+        check (! OnlineClient::parseAnswer ("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n", folder, "five", bad, error) && error.isNotEmpty(), "an answer with no audio in it counts as a failure");
+
+        juce::MemoryBlock mp3 ("ID3\x04", 4), flac ("fLaC", 4), unknown ("\x01\x02\x03\x04", 4);
+        check (OnlineClient::extensionFor (mp3, "audio/wav") == ".mp3" && OnlineClient::extensionFor (flac, "") == ".flac"
+               && OnlineClient::extensionFor (unknown, "audio/flac") == ".flac" && OnlineClient::extensionFor (unknown, "") == ".mp3", "the file type comes from the audio itself, then from what the service called it");
+
+        const auto take = makeTone (scratch.getChildFile ("to-send.wav"), 3.0);
+        juce::String format;
+        const auto packed = OnlineClient::packForSending (take, format);
+        const auto packedFile = scratch.getChildFile ("packed.flac");
+        packedFile.replaceWithData (packed.getData(), packed.getSize());
+        check (format == "flac" && packed.getSize() > 1000 && (juce::int64) packed.getSize() < take.getSize() / 2 && std::abs (audioLengthSeconds (packedFile) - 3.0) < 0.01,
+               "audio to start from is packed small before it is sent, with nothing lost (" + juce::String (take.getSize() / 1024) + " KB to " + juce::String ((int) packed.getSize() / 1024) + " KB)");
+        const auto back = OnlineClient::unpackToWav (packedFile);
+        check (back.getFileName() == "packed.wav" && ! packedFile.existsAsFile() && std::abs (audioLengthSeconds (back) - 3.0) < 0.01 && back.getSize() > take.getSize() - 4096,
+               "and a FLAC that comes back is turned into a WAV of the same length");
     }
 
     std::cout << "What comes back from the engine" << std::endl;
@@ -436,6 +519,7 @@ int main()
 
             // the queue, exactly as the plugin uses it
             Settings settings;
+            settings.set ("engineMode", "local");
             settings.set ("engineUrl", base);
             {
                 Library library (scratch.getChildFile ("queue-lib"));
@@ -500,6 +584,81 @@ int main()
                 check (job.state == Job::State::failed && job.message.contains ("not running"), "with no engine the song fails at once and says to start it");
             }
             settings.remove ("engineUrl");
+
+            // the same queue, making songs with the online service instead
+            mockConfig (base, "{\"delay\": 0.3, \"fail\": \"\"}");
+            settings.set ("engineMode", "online");
+            settings.set ("onlineUrl", base + "/online");
+            settings.set ("onlineKey", "testkey");
+            {
+                Library library (scratch.getChildFile ("online-lib"));
+                EngineWatch watch (settings);
+                Generator generator (settings, library, watch);
+                auto waitFor = [&] (const juce::String& id)
+                {
+                    for (int i = 0; i < 400; ++i)
+                    {
+                        pump (50);
+                        for (auto& j : generator.jobs()) if (j.id == id && ! j.active()) return j;
+                    }
+                    return Job();
+                };
+                for (int i = 0; i < 60 && ! watch.everChecked(); ++i) pump (50);
+                check (watch.status().online && watch.status().reachable && watch.models().size() == 2 && watch.models()[0].name == "acemusic/acestep-v15-turbo",
+                       "with a key, the plugin finds the online service and its models");
+
+                SongRequest song;
+                song.description = "A dark drill track about coming up from nothing";
+                song.variations = 2;
+                auto job = waitFor (generator.add (song));
+                check (job.state == Job::State::done && job.songIds.size() == 2, "a described song is made online and both versions land in the library  " + job.message);
+                auto made = library.songs();
+                check (made.size() == 2 && made[0].title == "Dark drill track 2" && library.audioOf (made[0]).existsAsFile() && made[0].fileName.endsWith (".wav")
+                       && std::abs (made[0].seconds - 1.5) < 0.01 && made[0].lyrics.contains ("Words the service wrote") && made[0].lyrics.endsWith ("hook...")
+                       && made[0].bpm == 96.0 && made[0].key == "G minor" && made[0].style.startsWith ("A song the service wrote"),
+                       "each has its audio, its real length, and the words, tempo and key the service chose");
+                check (library.folder().getNumberOfChildFiles (juce::File::findFiles) == 2, "nothing half-finished is left lying about");
+                auto sent = mockLast (base);
+                check (sent["text"].toString() == song.description && (bool) sent["fields"]["sample_mode"] && (bool) sent["fields"]["stream"]
+                       && sent["fields"]["model"].toString() == "acemusic/acestep-v15-turbo", "it was sent the way the service expects");
+
+                SongRequest remake;
+                remake.mode = SongRequest::Mode::custom;
+                remake.style = "soulful r&b";
+                remake.instrumental = true;
+                remake.variations = 1;
+                remake.source = SongRequest::Source::cover;
+                remake.audioPath = makeTone (scratch.getChildFile ("My Loop.wav"), 2.0).getFullPathName();
+                job = waitFor (generator.add (remake));
+                sent = mockLast (base);
+                check (job.state == Job::State::done && library.count() == 3 && sent["audio"]["format"].toString() == "flac" && sent["audio"]["magic"].toString() == "fLaC"
+                       && (int) sent["audio"]["bytes"] > 1000 && sent["fields"]["task_type"].toString() == "cover", "a remake sends its audio along, packed as FLAC  " + job.message);
+                check (library.songs()[0].lyrics.isEmpty() && library.songs()[0].title == "Soulful r&b", "an instrumental has no lyrics kept against it");
+
+                mockConfig (base, "{\"fail\": \"The service is out of capacity\"}");
+                job = waitFor (generator.add (song));
+                check (job.state == Job::State::failed && job.message == "The service is out of capacity" && library.count() == 3, "when the service cannot make a song it says why, and nothing is added");
+                mockConfig (base, "{\"fail\": \"\"}");
+
+                settings.set ("onlineKey", "wrong");
+                job = waitFor (generator.add (song));
+                check (job.state == Job::State::failed && job.message.contains ("key"), "a key the service does not accept is reported as exactly that");
+                juce::Array<EngineModel> none;
+                const auto refused = OnlineClient (base + "/online", "wrong").check (none);
+                check (! refused.reachable && refused.needsKey && OnlineClient (base + "/online", {}).check (none).needsKey, "and so is a missing one, without bothering the service");
+
+                settings.set ("onlineKey", "testkey");
+                mockConfig (base, "{\"delay\": 3.0}");
+                const auto slow = generator.add (song);
+                pump (800);
+                generator.cancel (slow);
+                job = waitFor (slow);
+                check (job.state == Job::State::cancelled && library.count() == 3, "a song being made online can be cancelled");
+                mockConfig (base, "{\"delay\": 0.5}");
+            }
+            settings.remove ("engineMode");
+            settings.remove ("onlineUrl");
+            settings.remove ("onlineKey");
             mock.kill();
         }
     }

@@ -170,8 +170,10 @@ MakerEditor::MakerEditor (MakerProcessor& p)
     setSize (juce::jlimit (940, 1700, (int) services.settings.getNumber ("windowWidth", 1060.0)),
              juce::jlimit (620, 1200, (int) services.settings.getNumber ("windowHeight", 700.0)));
 
-    // the first time, start on Help if the engine is not set up, since nothing works until it is
-    const bool needsSetup = services.runner.usesThisComputer() && ! services.runner.installed() && ! services.settings.getBool ("seenHelp", false);
+    // the first time, start on Help if there is still something to set up, since nothing works until it is
+    const bool ready = services.settings.online() ? services.settings.onlineKey().isNotEmpty()
+                                                  : (! services.runner.usesThisComputer() || services.runner.installed());
+    const bool needsSetup = ! ready && ! services.settings.getBool ("seenHelp", false);
     showPage (needsSetup ? (int) pageHelp : (int) pageCreate);
     if (needsSetup) services.settings.setBool ("seenHelp", true);
 
@@ -201,7 +203,36 @@ MakerEditor::EngineSummary MakerEditor::engineSummary() const
     const auto status = services.watch.status();
     auto& runner = services.runner;
 
-    if (! services.watch.everChecked())
+    if (services.settings.online())
+    {
+        if (services.settings.onlineKey().isEmpty())
+        {
+            s.text = "Needs a free key";
+            s.detail = current == pageSettings ? "Press Get a free key" : "Add it in Settings";
+            s.colour = theme::yellow;
+        }
+        else if (! services.watch.everChecked() || ! status.online)
+        {
+            s.text = "Checking online";
+            s.colour = theme::textMute;
+        }
+        else if (status.reachable)
+        {
+            s.text = "Online ready";
+            s.detail = "ACE Music";
+            s.colour = theme::good;
+            s.ready = true;
+        }
+        else
+        {
+            s.text = status.needsKey ? "Key not accepted" : "Online not reachable";
+            s.detail = status.error;
+            s.colour = theme::bad;
+        }
+        return s;
+    }
+
+    if (! services.watch.everChecked() || status.online)
     {
         s.text = "Looking for the engine";
         s.colour = theme::textMute;
@@ -527,6 +558,21 @@ void MakerEditor::makeSong()
     const auto problem = request.problem();
     if (problem.isNotEmpty()) { toast (problem, true); return; }
 
+    if (services.settings.online())
+    {
+        if (services.settings.onlineKey().isEmpty())
+        {
+            toast ("Add your free key in Settings first. It takes a minute to get one.", true);
+            showPage (pageSettings);
+            return;
+        }
+        const auto status = services.watch.status();
+        if (status.online && status.needsKey) { toast (status.error, true); showPage (pageSettings); return; }
+        services.generator.add (request);
+        toast (request.variations > 1 ? "Making " + juce::String (request.variations) + " versions" : juce::String ("Making it"));
+        return;
+    }
+
     const auto summary = engineSummary();
     if (! services.watch.status().reachable)
     {
@@ -561,6 +607,9 @@ void MakerEditor::timerCallback()
 
     // the engine line in the sidebar moves while it starts
     if (engineSummary().starting) repaint (0, getHeight() - 70, kSidebar, 70);
+
+    // another copy of the plugin may have switched between online and this computer
+    if (current == pageCreate && lastKnownOnline != services.settings.online()) { lastKnownOnline = services.settings.online(); refreshAll(); }
 }
 
 void MakerEditor::refreshAll()
@@ -593,13 +642,14 @@ void MakerEditor::changeListenerCallback (juce::ChangeBroadcaster* source)
     {
         // start the engine by itself the first time the plugin finds it switched off
         auto& runner = services.runner;
-        if (services.watch.everChecked() && ! services.watch.status().reachable && ! runner.triedAutoStart
+        if (! services.settings.online() && services.watch.everChecked() && ! services.watch.status().online
+            && ! services.watch.status().reachable && ! runner.triedAutoStart
             && services.settings.getBool ("autoStartEngine", true) && runner.usesThisComputer() && runner.installed() && ! runner.startedHere())
         {
             runner.triedAutoStart = true;
             startEngine (true);
         }
-        if (services.watch.status().reachable) runner.triedAutoStart = true;
+        if (! services.settings.online() && services.watch.status().reachable) runner.triedAutoStart = true;
     }
 
     if (source == &services.updater)

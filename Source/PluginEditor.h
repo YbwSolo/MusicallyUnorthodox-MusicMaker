@@ -70,6 +70,7 @@ private:
     bool toastIsError = false;
     juce::uint32 toastUntil = 0;
     int toldAboutBuild = 0;
+    bool lastKnownOnline = true;
     juce::StringArray seenDone;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MakerEditor)

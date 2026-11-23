@@ -70,6 +70,7 @@ set(MUM_CORE_SOURCES
     Source/core/Settings.cpp
     Source/core/Http.cpp
     Source/core/Engine.cpp
+    Source/core/Online.cpp
     Source/core/EngineRunner.cpp
     Source/core/Library.cpp
     Source/core/Generator.cpp

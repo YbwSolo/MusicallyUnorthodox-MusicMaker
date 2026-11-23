@@ -47,6 +47,8 @@ struct EngineStatus
     bool reachable = false;
     bool modelsReady = false;
     bool languageModelReady = false;
+    bool online = false;            // this is the online service, not an engine of our own
+    bool needsKey = false;          // online, and the key is missing or was refused
     juce::String model, languageModel, error;
 };
 

@@ -22,6 +22,10 @@ public:
     juce::File engineFolder() const;        // where the engine is (or will be) installed on this computer
     juce::String audioFormat() const;       // wav, flac or mp3
 
+    bool online() const;                    // songs are made by the online service instead of an engine of our own
+    juce::String onlineUrl() const;
+    juce::String onlineKey() const;
+
     static juce::File appDataDir();         // per-user settings, the engine and its log
     static juce::File libraryDir();         // the songs themselves: Music/MU Music Maker
     static juce::File songsDir();

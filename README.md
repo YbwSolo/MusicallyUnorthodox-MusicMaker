@@ -1,7 +1,7 @@
 # MU Music Maker
 
 A plugin from Musically Unorthodox that makes whole songs inside your DAW: beats, instruments and vocals, from a
-description or from your own lyrics. Think Suno, but it lives on a track in your project and runs on your own computer.
+description or from your own lyrics. Think Suno, but it lives on a track in your project, and it is free.
 
 Type what you want, press **Make the song**, and a couple of versions land in the list. Play them through the plugin,
 then drag the one you like straight onto a track.
@@ -21,14 +21,29 @@ Go to **Releases** on the right of this page and download the newest build.
 Then open your DAW, rescan plugins if it does not show up, and put **MU Music Maker** on any audio track
 (in Logic it is under Audio FX > Musically Unorthodox).
 
-## Set up the engine (once)
+## Get it making music
 
-The music is made by an open source model called ACE-Step 1.5. It runs on your computer, so there is no account,
-no credits and nothing sent anywhere. It is a big download and has to be set up once:
+The music is made by an open source engine called ACE-Step 1.5. You choose where it runs, in **Settings**.
 
-1. Open the plugin, go to **Settings** and press **Set up the engine**. A window opens and does everything by itself.
+### Online (free, nothing to install)
+
+This is how it starts out, and the quickest way to get going.
+
+1. Open the plugin and go to **Settings**.
+2. Press **Get a free key**. It opens ACE Music's page in your browser. Make a free account and copy the key.
+3. Paste it into **Your key**. When the dot at the bottom left goes green, you are ready.
+
+ACE Music are the people who make the engine, and they run it online for free. Your words, and any audio you start
+a song from, are sent to them to make the song, so this way needs the internet.
+
+### On your own computer
+
+Choose **On this computer** in Settings if you want nothing to leave your machine, or to work with no internet.
+It is a big download and has to be set up once:
+
+1. Press **Set up the engine**. A window opens and does everything by itself.
    It downloads about 10 GB, so leave it open until it says All done.
-2. Back in Settings, press **Start the engine**. It takes a minute or so to come up.
+2. Press **Start the engine**. It takes a minute or so to come up.
 3. When the dot at the bottom left goes green, you are ready. After that the plugin starts the engine by itself.
    The first song after each start is slower, because that is when the engine loads its model.
 
@@ -59,7 +74,7 @@ The Help page inside the plugin goes through all of this.
 
 ### Two computers
 
-The engine can run on one computer while you work on another, for example a PC with a strong graphics card making the
+With **On this computer** chosen, the engine can also run on one computer while you work on another, for example a PC with a strong graphics card making the
 songs for a laptop. On the engine's computer, tick **Let other computers on my network use this engine** in Settings and
 start the engine again. On the other one, put the first computer's address in **Where the engine is**,
 like `http://192.168.1.20:8001`.
@@ -73,14 +88,15 @@ then quit and reopen your DAW. On Windows the button downloads the new installer
 
 - Your songs: `Music/MU Music Maker/Songs`
 - Audio caught from a track: `Music/MU Music Maker/Takes`
-- Settings and the engine: the app data folder for your user (`MU Music Maker`)
+- Settings, your key and the engine: the app data folder for your user (`MU Music Maker`)
 
 The plugin never changes the sound of the track it is on. Audio passes straight through.
 
 ## Building
 
 Every push to `main` builds the Mac and Windows installers on GitHub Actions and publishes them as a release.
-The tests run against a small stand-in for the engine (`Source/tests/mock_engine.py`), so they need no graphics card.
+The tests run against a small stand-in for the engine and the online service (`Source/tests/mock_engine.py`),
+so they need no graphics card and no account.
 
 To build it yourself: `cmake -B build && cmake --build build --config Release`.
 

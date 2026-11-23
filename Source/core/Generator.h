@@ -15,6 +15,7 @@ public:
     juce::Array<EngineModel> models() const;
     bool everChecked() const                { return checked.load(); }
     void checkSoon();                       // after a setting changed or the engine was started
+    void startOver();                       // after switching between online and this computer: forget what was known
     void setWatchedClosely (bool closely)   { closely ? ++watchers : --watchers; checkSoon(); }
 
 private:
@@ -25,6 +26,7 @@ private:
     EngineStatus current;
     juce::Array<EngineModel> modelList;
     std::atomic<bool> checked { false };
+    bool wasOnline = false;
     std::atomic<int> watchers { 0 };
 };
 

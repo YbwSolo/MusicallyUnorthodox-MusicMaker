@@ -1,4 +1,6 @@
 #include "Generator.h"
+#include "Online.h"
+#include "Player.h"
 
 namespace mm
 {
@@ -19,17 +21,33 @@ juce::Array<EngineModel> EngineWatch::models() const
 
 void EngineWatch::checkSoon() { notify(); }
 
+void EngineWatch::startOver()
+{
+    checked.store (false);
+    notify();
+    sendChangeMessage();
+}
+
 void EngineWatch::run()
 {
     while (! threadShouldExit())
     {
-        const EngineClient client (settings.engineUrl(), settings.engineKey());
-        auto now = client.health();
+        EngineStatus now;
         juce::Array<EngineModel> found;
-        if (now.reachable)
+        const bool online = settings.online();
+        if (online)
         {
-            juce::String ignored;
-            found = client.models (ignored);
+            now = OnlineClient (settings.onlineUrl(), settings.onlineKey()).check (found);
+        }
+        else
+        {
+            const EngineClient client (settings.engineUrl(), settings.engineKey());
+            now = client.health();
+            if (now.reachable)
+            {
+                juce::String ignored;
+                found = client.models (ignored);
+            }
         }
         if (threadShouldExit()) break;
 
@@ -37,17 +55,21 @@ void EngineWatch::run()
         {
             const juce::ScopedLock sl (lock);
             changed = ! checked.load() || now.reachable != current.reachable || now.modelsReady != current.modelsReady
+                   || now.online != current.online || now.needsKey != current.needsKey
                    || now.languageModelReady != current.languageModelReady || now.model != current.model
                    || now.error != current.error || found.size() != modelList.size();
             current = now;
-            if (now.reachable) modelList = found;
+            if (now.reachable || now.online != wasOnline) modelList = found;
+            wasOnline = now.online;
         }
         checked.store (true);
         if (changed) sendChangeMessage();
 
         // quick while someone is looking at the plugin and waiting for the engine, relaxed otherwise
+        // The online service is somebody else's, so it is asked far less often.
         const bool waiting = watchers.load() > 0 && ! now.reachable;
-        wait (waiting ? 1500 : (watchers.load() > 0 ? 5000 : 15000));
+        if (online) wait (waiting && ! now.needsKey ? 15000 : 120000);
+        else        wait (waiting ? 1500 : (watchers.load() > 0 ? 5000 : 15000));
     }
 }
 
@@ -166,7 +188,53 @@ void Generator::process (const juce::String& jobId)
         update (jobId, [&] (Job& j) { j.state = state; j.message = message; j.finishedMs = juce::Time::currentTimeMillis(); if (state == Job::State::done) j.progress = 1.0; });
     };
 
-    update (jobId, [] (Job& j) { j.state = Job::State::sending; j.message = "Sending it to the engine"; j.progress = 0.0; });
+    update (jobId, [] (Job& j) { j.state = Job::State::sending; j.message = "Sending it off"; j.progress = 0.0; });
+
+    if (settings.online())
+    {
+        // one request does the lot: the service writes it, makes it and sends the audio back
+        update (jobId, [] (Job& j) { j.state = Job::State::making; j.message = "Making the music online"; });
+        OnlineResult result;
+        juce::String error;
+        const OnlineClient online (settings.onlineUrl(), settings.onlineKey());
+        if (! online.generate (request, settings.audioFormat(), library.folder(), ".incoming-" + jobId, result, error, stopped))
+        {
+            finish (stopped() ? Job::State::cancelled : Job::State::failed, stopped() ? juce::String ("Cancelled") : error);
+            if (! stopped()) watch.checkSoon();
+            return;
+        }
+
+        update (jobId, [] (Job& j) { j.state = Job::State::fetching; j.message = "Bringing the audio in"; j.progress = 0.95; });
+        juce::StringArray made;
+        const int total = result.files.size();
+        for (int i = 0; i < total; ++i)
+        {
+            const auto incoming = result.files.getReference (i);
+            Song s;
+            s.title = total > 1 ? title + " " + juce::String (i + 1) : title;
+            s.style = result.caption.isNotEmpty() ? result.caption : (request.mode == SongRequest::Mode::custom ? request.style : request.description);
+            s.lyrics = request.instrumental ? juce::String()
+                     : (result.lyrics.isNotEmpty() && ! result.lyrics.equalsIgnoreCase ("[Instrumental]") ? result.lyrics
+                        : (request.mode == SongRequest::Mode::custom ? request.lyrics.trim() : juce::String()));
+            s.bpm = result.bpm > 0.0 ? result.bpm : (double) request.bpm;
+            const double measured = audioLengthSeconds (incoming);
+            s.seconds = measured > 0.0 ? measured : (result.seconds > 0.0 ? result.seconds : request.seconds);
+            s.key = result.key.isNotEmpty() ? result.key : request.key;
+            s.timeSignature = result.timeSignature.isNotEmpty() ? result.timeSignature : request.timeSignature;
+            s.model = "ACE Music online";
+            s.jobId = jobId;
+            s.variation = i + 1;
+            s.variationsTotal = total;
+            s.request = request.toVar();
+            const auto saved = library.add (s, incoming);
+            if (saved.id.isNotEmpty()) made.add (saved.id);
+            incoming.deleteFile();
+        }
+        update (jobId, [&] (Job& j) { j.songIds = made; });
+        if (made.isEmpty()) { finish (Job::State::failed, "The song could not be brought in."); return; }
+        finish (Job::State::done, made.size() == 1 ? juce::String ("1 song ready") : juce::String (made.size()) + " songs ready");
+        return;
+    }
 
     EngineClient client (settings.engineUrl(), settings.engineKey());
     const auto health = client.health (2500);
@@ -263,7 +331,8 @@ void Generator::process (const juce::String& jobId)
         s.style = item.prompt.isNotEmpty() ? item.prompt : (request.mode == SongRequest::Mode::custom ? request.style : request.description);
         s.lyrics = item.lyrics.trim().equalsIgnoreCase ("[Instrumental]") ? juce::String() : item.lyrics;
         s.bpm = item.bpm > 0.0 ? item.bpm : (double) request.bpm;
-        s.seconds = item.seconds > 0.0 ? item.seconds : request.seconds;
+        const double measured = audioLengthSeconds (incoming);
+        s.seconds = measured > 0.0 ? measured : (item.seconds > 0.0 ? item.seconds : request.seconds);
         s.key = item.key.isNotEmpty() ? item.key : request.key;
         s.timeSignature = item.timeSignature.isNotEmpty() ? item.timeSignature : request.timeSignature;
         s.model = item.model;

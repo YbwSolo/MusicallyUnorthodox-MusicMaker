@@ -12,6 +12,30 @@ public:
     {
         auto& s = editor.services.settings;
 
+        mode.select (s.online() ? 0 : 1);
+        mode.onChange = [this] (int index)
+        {
+            editor.services.settings.set ("engineMode", index == 0 ? "online" : "local");
+            editor.services.watch.startOver();
+            refresh();
+            if (onHeightChanged) onHeightChanged();
+        };
+        addAndMakeVisible (mode);
+
+        theme::styleEditor (onlineKey, "Paste your key here");
+        onlineKey.setText (s.onlineKey(), false);
+        onlineKey.setPasswordCharacter ((juce::juce_wchar) 0x2022);
+        onlineKey.onTextChange = [this]
+        {
+            editor.services.settings.set ("onlineKey", onlineKey.getText().trim());
+            editor.services.watch.startOver();
+            refresh();
+        };
+        addAndMakeVisible (onlineKey);
+        getKeyButton.setButtonText ("Get a free key");
+        getKeyButton.onClick = [] { juce::URL ("https://acemusic.ai/api-key").launchInDefaultBrowser(); };
+        addAndMakeVisible (getKeyButton);
+
         startButton.onClick = [this]
         {
             auto& runner = editor.services.runner;
@@ -32,7 +56,7 @@ public:
             else                                              editor.toast (error, true);
         };
         checkButton.setButtonText ("Check again");
-        checkButton.onClick = [this] { editor.services.watch.checkSoon(); };
+        checkButton.onClick = [this] { editor.services.watch.startOver(); };
         for (auto* b : { &startButton, &setupButton, &checkButton, &folderButton, &songsButton, &updateButton, &logButton }) addAndMakeVisible (*b);
 
         theme::styleEditor (address, "http://127.0.0.1:8001");
@@ -96,9 +120,16 @@ public:
     {
         auto& runner = editor.services.runner;
         const auto summary = editor.engineSummary();
-        const bool local = runner.usesThisComputer();
+        const bool online = editor.services.settings.online();
+        const bool local = ! online && runner.usesThisComputer();
         const bool installed = runner.installed();
-        const bool running = editor.services.watch.status().reachable || summary.starting;
+        const bool running = ! online && (editor.services.watch.status().reachable || summary.starting);
+        mode.select (online ? 0 : 1);
+        onlineKey.setVisible (online);
+        getKeyButton.setVisible (online);
+        getKeyButton.getProperties().set ("primary", online && editor.services.settings.onlineKey().isEmpty());
+        address.setVisible (! online);
+        apiKey.setVisible (! online);
 
         startButton.setButtonText (running ? "Stop the engine" : "Start the engine");
         startButton.setVisible (local && (installed || running));
@@ -124,32 +155,50 @@ public:
     {
         panels.clear();
         const auto summary = editor.engineSummary();
-        const bool local = editor.services.runner.usesThisComputer();
+        const bool online = editor.services.settings.online();
+        const bool local = ! online && editor.services.runner.usesThisComputer();
         const int inner = width - 44;
         int y = 0;
 
-        // the engine
+        // where the music is made
         {
             const int top = y;
             y += 22 + 28;                               // heading
+            mode.setBounds (22, y, juce::jmin (inner, 420), 38);
+            y += 38 + 10;
+            modeHintY = y;
+            modeHintHeight = (int) std::ceil (theme::wrappedHeight (modeHint(), (float) inner, theme::body (12.0f)));
+            y += modeHintHeight + 14;
+
             statusY = y;
             y += 44 + 14;
             int x = 22;
             auto place = [&] (juce::Button& b, int w) { if (b.isVisible()) { b.setBounds (x, y, w, 34); x += w + 10; } };
+            place (getKeyButton, 150);
             place (startButton, 150);
             place (setupButton, 160);
             place (checkButton, 120);
             y += 34 + 22;
 
-            addressY = y;
-            address.setBounds (22, y + 20, inner, 34);
-            y += 20 + 34 + 6;
-            addressHintHeight = (int) std::ceil (theme::wrappedHeight (addressHint(), (float) inner, theme::body (12.0f)));
-            y += addressHintHeight + 16;
+            if (online)
+            {
+                keyY = y;
+                onlineKey.setBounds (22, y + 20, juce::jmin (inner, 460), 34);
+                y += 20 + 34 + 6;
+                addressY = -1;
+            }
+            else
+            {
+                addressY = y;
+                address.setBounds (22, y + 20, inner, 34);
+                y += 20 + 34 + 6;
+                addressHintHeight = (int) std::ceil (theme::wrappedHeight (addressHint(), (float) inner, theme::body (12.0f)));
+                y += addressHintHeight + 16;
 
-            keyY = y;
-            apiKey.setBounds (22, y + 20, juce::jmin (inner, 360), 34);
-            y += 20 + 34 + 16;
+                keyY = y;
+                apiKey.setBounds (22, y + 20, juce::jmin (inner, 360), 34);
+                y += 20 + 34 + 16;
+            }
 
             if (local)
             {
@@ -167,7 +216,7 @@ public:
             }
             else folderY = shareHintY = -1;
             y += 18;
-            panels.add ({ "THE ENGINE", { 0, top, width, y - top } });
+            panels.add ({ "WHERE THE MUSIC IS MADE", { 0, top, width, y - top } });
             y += 16;
         }
 
@@ -237,9 +286,17 @@ public:
         g.setFont (theme::body (12.0f));
         g.drawText (summary.detail, juce::Rectangle<float> (status.getX() + 38.0f + nameWidth, status.getY(), status.getWidth() - 50.0f - nameWidth, status.getHeight()).toNearestInt(), juce::Justification::centredLeft, true);
 
-        caption ("WHERE THE ENGINE IS", addressY);
-        theme::drawWrapped (g, addressHint(), juce::Rectangle<float> (22.0f, (float) addressY + 60.0f, (float) inner, (float) addressHintHeight), theme::body (12.0f), theme::textDim);
-        caption ("KEY", keyY);
+        theme::drawWrapped (g, modeHint(), juce::Rectangle<float> (22.0f, (float) modeHintY, (float) inner, (float) modeHintHeight), theme::body (12.0f), theme::textDim);
+        if (addressY >= 0)
+        {
+            caption ("WHERE THE ENGINE IS", addressY);
+            theme::drawWrapped (g, addressHint(), juce::Rectangle<float> (22.0f, (float) addressY + 60.0f, (float) inner, (float) addressHintHeight), theme::body (12.0f), theme::textDim);
+            caption ("KEY", keyY);
+        }
+        else
+        {
+            caption ("YOUR KEY", keyY);
+        }
 
         if (folderY >= 0)
         {
@@ -276,6 +333,13 @@ public:
     std::function<void()> onHeightChanged;
 
 private:
+    juce::String modeHint() const
+    {
+        return editor.services.settings.online()
+            ? "Songs are made on ACE Music's servers, run by the people who make the engine. It is free and there is nothing to install: get a key, paste it in, done. Your words, and any audio you start a song from, are sent to them to make the song."
+            : "Songs are made by an engine on your own computer, or one on your network. Nothing leaves your machine and it works with no internet, but the engine is a big download and wants a strong computer.";
+    }
+
     juce::String addressHint() const
     {
         return editor.services.runner.usesThisComputer()
@@ -285,7 +349,7 @@ private:
 
     static juce::String aboutText()
     {
-        return "MU Music Maker makes its music with ACE-Step 1.5, an open source model that runs on your own computer. Your words and your audio stay on it; nothing is sent to a company's servers. Made for Musically Unorthodox.";
+        return "MU Music Maker makes its music with ACE-Step 1.5, an open source model. Online, it runs on ACE Music's servers; on this computer, nothing is sent anywhere. Made for Musically Unorthodox.";
     }
 
     void chooseEngineFolder()
@@ -305,12 +369,14 @@ private:
     struct Panel { juce::String title; juce::Rectangle<int> area; };
 
     MakerEditor& editor;
-    juce::TextButton startButton, setupButton, checkButton, folderButton, songsButton, updateButton, logButton;
-    juce::TextEditor address, apiKey;
+    Segmented mode { { "Online (free)", "On this computer" } };
+    juce::TextButton startButton, setupButton, checkButton, folderButton, songsButton, updateButton, logButton, getKeyButton;
+    juce::TextEditor address, apiKey, onlineKey;
     juce::ToggleButton autoStart, keepRunning, share;
     juce::ComboBox format;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::Array<Panel> panels;
+    int modeHintY = 0, modeHintHeight = 0;
     int statusY = 0, addressY = 0, addressHintHeight = 0, keyY = 0, folderY = -1, shareHintY = -1, formatY = 0, songsY = 0, updateY = 0, aboutY = 0;
 };
 

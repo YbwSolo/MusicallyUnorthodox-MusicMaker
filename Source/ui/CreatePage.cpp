@@ -369,6 +369,13 @@ public:
         chips.setStyle (d.style);
         instrumental.setToggleState (d.instrumental, juce::dontSendNotification);
 
+        if (! filling)
+        {
+            const bool online = editor.services.settings.online();
+            fillButton.setButtonText (online ? (d.enhance ? "Writing it out: on" : "Write it out for me") : juce::String ("Write it out for me"));
+            fillButton.getProperties().set ("primary", online && d.enhance);
+        }
+
         const bool follow = p.followProjectTempo && p.hostKnowsTempo();
         followTempo.setToggleState (p.followProjectTempo, juce::dontSendNotification);
         followTempo.setButtonText (p.hostKnowsTempo() ? "Use the project's tempo (" + juce::String (juce::roundToInt (p.hostBpm())) + ")"
@@ -651,7 +658,9 @@ public:
             const int n = juce::roundToInt (steps.getValue());
             g.setColour (theme::textDim);
             g.setFont (theme::body (12.0f));
-            g.drawText ("Quality: " + juce::String (n) + " steps" + (n <= 12 ? "  (quick, right for the turbo models)" : n <= 40 ? "  (slower)" : "  (slow, for the base models)"),
+            g.drawText (editor.services.settings.online()
+                            ? juce::String ("Quality: set by the online service (this only applies on your own computer)")
+                            : "Quality: " + juce::String (n) + " steps" + (n <= 12 ? "  (quick, right for the turbo models)" : n <= 40 ? "  (slower)" : "  (slow, for the base models)"),
                         0, stepsLabelY, getWidth(), 16, juce::Justification::centredLeft);
         }
 
@@ -800,6 +809,16 @@ private:
         push();
         auto request = editor.processor.draft;
         if (request.style.trim().isEmpty()) { editor.toast ("Add a style first, so the engine knows what to write.", true); return; }
+        if (editor.services.settings.online())
+        {
+            // online, the service writes the song out as part of making it
+            auto& d = editor.processor.draft;
+            d.enhance = ! d.enhance;
+            editor.processor.draftChanged();
+            editor.toast (d.enhance ? "On: the online service will write your style and lyrics out more fully when it makes the song."
+                                    : "Off: the song will be made from exactly what you wrote.");
+            return;
+        }
         if (! editor.services.watch.status().reachable) { editor.toast ("The engine has to be running for this.", true); return; }
 
         filling = true;

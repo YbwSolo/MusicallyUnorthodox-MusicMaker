@@ -68,6 +68,18 @@ juce::File Settings::engineFolder() const
     return appDataDir().getChildFile ("Engine");
 }
 
+bool Settings::online() const { return get ("engineMode", "online") != "local"; }
+
+juce::String Settings::onlineUrl() const
+{
+    auto url = get ("onlineUrl", "https://api.acemusic.ai").trim();
+    if (url.isEmpty()) url = "https://api.acemusic.ai";
+    while (url.endsWithChar ('/')) url = url.dropLastCharacters (1);
+    return url;
+}
+
+juce::String Settings::onlineKey() const { return get ("onlineKey").trim(); }
+
 juce::String Settings::audioFormat() const
 {
     const auto f = get ("audioFormat", "wav").toLowerCase();
