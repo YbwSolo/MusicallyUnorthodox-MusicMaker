@@ -28,8 +28,9 @@ no credits and nothing sent anywhere. It is a big download and has to be set up 
 
 1. Open the plugin, go to **Settings** and press **Set up the engine**. A window opens and does everything by itself.
    It downloads about 10 GB, so leave it open until it says All done.
-2. Back in Settings, press **Start the engine**. The first start takes a minute or two.
+2. Back in Settings, press **Start the engine**. It takes a minute or so to come up.
 3. When the dot at the bottom left goes green, you are ready. After that the plugin starts the engine by itself.
+   The first song after each start is slower, because that is when the engine loads its model.
 
 What it needs:
 

@@ -16,8 +16,9 @@ const Section kSections[] = {
 
     { "SETTING UP THE ENGINE (ONCE)",
       "1.  Go to Settings and press Set up the engine. A window opens and does the work by itself. It downloads about 10 GB, so give it time and leave it open.\n"
-      "2.  When that window says All done, come back to Settings and press Start the engine. The first start takes a minute or two while it loads.\n"
-      "3.  The dot at the bottom left turns green and says Engine ready. From then on the plugin starts the engine by itself whenever you open it.\n\n"
+      "2.  When that window says All done, come back to Settings and press Start the engine. It takes a minute or so to come up.\n"
+      "3.  The dot at the bottom left turns green and says Engine ready. From then on the plugin starts the engine by itself whenever you open it. "
+      "The first song after each start is slower, because that is when the engine loads its model.\n\n"
       "What it needs: on a Mac, an Apple Silicon machine (M1 or newer) with 16 GB of memory is comfortable. On Windows, an NVIDIA graphics card with 6 GB or more. "
       "It wants about 20 GB of free disk space." },
 

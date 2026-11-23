@@ -206,19 +206,13 @@ MakerEditor::EngineSummary MakerEditor::engineSummary() const
         s.text = "Looking for the engine";
         s.colour = theme::textMute;
     }
-    else if (status.reachable && status.modelsReady)
-    {
-        s.text = "Engine ready";
-        s.detail = status.model;
-        s.colour = theme::good;
-        s.ready = true;
-    }
     else if (status.reachable)
     {
-        s.text = "Engine is loading";
-        s.detail = "Loading its models";
-        s.colour = theme::yellow;
-        s.starting = true;
+        // the engine only loads its model when the first song asks for it, so it is ready as soon as it answers
+        s.text = "Engine ready";
+        s.detail = status.modelsReady ? status.model : juce::String ("The first song takes a little longer");
+        s.colour = theme::good;
+        s.ready = true;
     }
     else if (runner.startedHere() && juce::Time::currentTimeMillis() - runner.startedAtMs() < 20 * 60 * 1000)
     {
@@ -247,7 +241,7 @@ void MakerEditor::startEngine (bool byItself)
     juce::String error;
     if (services.runner.start (error))
     {
-        if (! byItself) toast ("Starting the engine. The first start takes a minute or two.");
+        if (! byItself) toast ("Starting the engine. It takes a minute or so to come up.");
         services.watch.checkSoon();
     }
     else if (! byItself)
@@ -341,10 +335,17 @@ void MakerEditor::toast (const juce::String& text, bool isError)
     repaint();
 }
 
+void MakerEditor::closeOverlaySoon()
+{
+    // not straight away: this is called from inside the overlay's own button
+    juce::Component::SafePointer<MakerEditor> safe (this);
+    juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->overlay.reset(); });
+}
+
 void MakerEditor::showText (const juce::String& title, const juce::String& text)
 {
     toastText.clear();
-    auto* o = new Overlay (title, {}, text, "Copy", false, true, false, {}, [this] { juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MakerEditor> (this)] { if (safe != nullptr) safe->overlay.reset(); }); });
+    auto* o = new Overlay (title, {}, text, "Copy", false, true, false, {}, [this] { closeOverlaySoon(); });
     overlay.reset (o);
     addAndMakeVisible (*overlay);
     overlay->setBounds (getLocalBounds());
@@ -356,7 +357,7 @@ void MakerEditor::ask (const juce::String& title, const juce::String& message, c
 {
     toastText.clear();
     auto* o = new Overlay (title, message, initial, okLabel, wantsText, false, danger, std::move (onOk),
-                           [this] { juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MakerEditor> (this)] { if (safe != nullptr) safe->overlay.reset(); }); });
+                           [this] { closeOverlaySoon(); });
     overlay.reset (o);
     addAndMakeVisible (*overlay);
     overlay->setBounds (getLocalBounds());

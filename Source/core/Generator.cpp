@@ -46,7 +46,7 @@ void EngineWatch::run()
         if (changed) sendChangeMessage();
 
         // quick while someone is looking at the plugin and waiting for the engine, relaxed otherwise
-        const bool waiting = watchers.load() > 0 && (! now.reachable || ! now.modelsReady);
+        const bool waiting = watchers.load() > 0 && ! now.reachable;
         wait (waiting ? 1500 : (watchers.load() > 0 ? 5000 : 15000));
     }
 }

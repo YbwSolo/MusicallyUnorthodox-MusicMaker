@@ -55,6 +55,7 @@ private:
     void timerCallback() override;
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void refreshAll();
+    void closeOverlaySoon();
 
     mm::theme::Look look;
     juce::Image logo;
